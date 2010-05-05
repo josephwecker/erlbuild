@@ -1,0 +1,7 @@
+% IN PROGRESS...
+[
+ {src_dir, "src2"}, % If not "./src"
+ {sources, [test1, test2, test3]},
+ {dest_dir, "bin"}, % If not bin for escript-based or ebin for ebin-based
+ {out_type, ebin} % If has a main function but not meant to be a script...
+ ].

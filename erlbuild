@@ -1,12 +1,5 @@
 #!/usr/bin/env escript
 
--define(SRC_DIR, "command-src").
--define(CMD_SOURCES, [
-    clutil,
-    rex,
-    zerl
-  ]).
-
 -export([main/1]).
 
 % To avoid dependency with kernel.  Might need to rethink later.

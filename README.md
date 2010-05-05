@@ -10,6 +10,12 @@ Quick makefile replacement for Erlang projects.
 * Self-contained- no dependencies other than erlang (escript)
 * Hopefully understandable error messages and warnings
 
+## Examples
+
+
+## To Install
+
+
 ## Current Issues
 
 * Only tested on Mac OSX and Linux
@@ -17,6 +23,7 @@ Quick makefile replacement for Erlang projects.
 ## Future
 
 * Have a bootstrapper so I can modularize the code a little better
+* Good globber
 * Integrate unit-testing
 * Integrate dialyzer
 * Integrate quickcheck (?)
