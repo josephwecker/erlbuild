@@ -16,6 +16,7 @@ Quick makefile replacement for Erlang projects.
 
 ## Future
 
+* Have a bootstrapper so I can modularize the code a little better
 * Integrate unit-testing
 * Integrate dialyzer
 * Integrate quickcheck (?)
