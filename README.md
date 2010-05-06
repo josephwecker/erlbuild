@@ -13,7 +13,7 @@ Quick makefile replacement for Erlang projects.
 
 ## Usage
 
-erlbuild (-f OtherEBFile) (target=all)
+    erlbuild [-f EBFile] [target=all]
 
 When you run erlbuild it looks for either an "ebfile" or ".ebfile" (in that
 order) in the current directory unless a different file is specified with the
