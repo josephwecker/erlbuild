@@ -8,28 +8,19 @@
     minor_device, inode, uid, gid}).
 
 -define(TARGET_DESC, [
-    {other_targets, []},
+    {other_targets,    []},
     {external_ebfiles, []},
-    {src_dir, "src"},
-    {sources, "*.erl"},
+    {src_dir,          src},
+    {sources,          "*.erl"},
+    {includes,         [include]},
+    {dest_dir,         discover},
+    {dest_type,        beams},
+    {exec_name,        discover}]).
+    % Future:
+    % - before_script -> defaults to none
+    % - after_script -> defaults to none
 
 main(Params) ->
-  % TODO:
-  % * Process command-line options
-  %   -f for a different ebfile - default to current-directory ebfile|.ebfile
-  %   target
-  % * Figure out options based on ebfile
-  %   [target-block]
-  %     - other_targets -> defaults to []
-  %     - (f) external_ebfiles -> defaults to []
-  %     - src_dir -> defaults to "src"
-  %     - sources -> defaults to "*.erl"
-  %     - includes -> ["include"] (and keeps it when others specified?)
-  %     - dest_dir -> defaults to "ebin" or "bin" (creates if necessary)
-  %     - (f) before_script -> defaults to none
-  %     - (f) after_script -> defaults to none
-  %     - exec_name -> defaults to module name of module with "main"
-
   {EBFile, Targets} = process_commandline(Params),
   process_ebfile(EBFile, Targets).
 
@@ -103,7 +94,8 @@ get_targetdefs(FileName) ->
   end.
 
 preformat_target(T) ->
-  
+  % TODO: you are here.  use TARGET_DESC
+  {error, nyi}.
 
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
