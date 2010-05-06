@@ -7,39 +7,104 @@
   {size, type, access, atime, mtime, ctime, mode, links, major_device,
     minor_device, inode, uid, gid}).
 
-main(_) ->
-  ScriptDir = filename:dirname(escript:script_name()),
-  LastModTimes = saved_modtimes(ScriptDir),
-  BinDir = filename:join([ScriptDir,"bin"]),
-  EBinDir = filename:join([ScriptDir,".cmd-ebin"]),
-  ok = ensure_dir(EBinDir),
-  SrcDir = filename:join([ScriptDir, ?SRC_DIR]),
-  Compiled = lists:map(
-    fun(S) ->
-        ensure_compiled(S, LastModTimes, SrcDir, EBinDir)
-    end, ?CMD_SOURCES),
-  Warnings = lists:flatten(
-    [Warns || {_, {_, _, Warns}} <- Compiled, Warns =/= nochange]),
-  Errors = lists:flatten([Errs || {_, {error, Errs, _}} <- Compiled]),
-  case Warnings of
-    [] -> nice;
-    W -> emit_errs("Warnings", W)
-  end,
-  case Errors of
-    [] ->
-      case (length([true||{_,{ok,_,nochange}}<-Compiled]) == length(Compiled))
-        and filelib:is_file([BinDir, "/zerl"]) of
-        true -> nothing_to_do;
-        false ->
-          create_executable(EBinDir, BinDir,
-            [atom_to_list(MN)++".beam" || {_,{ok,MN,_}} <- Compiled],
-            "zerl"),
-          preserve_modtimes(ScriptDir, [{MN, MT} || {MT, {ok, MN,_}} <- Compiled])
-      end;
-    E ->
-      emit_errs("Errors", E),
-      halt(1)
+-define(TARGET_DESC, [
+    {other_targets, []},
+    {external_ebfiles, []},
+    {src_dir, "src"},
+    {sources, "*.erl"},
+
+main(Params) ->
+  % TODO:
+  % * Process command-line options
+  %   -f for a different ebfile - default to current-directory ebfile|.ebfile
+  %   target
+  % * Figure out options based on ebfile
+  %   [target-block]
+  %     - other_targets -> defaults to []
+  %     - (f) external_ebfiles -> defaults to []
+  %     - src_dir -> defaults to "src"
+  %     - sources -> defaults to "*.erl"
+  %     - includes -> ["include"] (and keeps it when others specified?)
+  %     - dest_dir -> defaults to "ebin" or "bin" (creates if necessary)
+  %     - (f) before_script -> defaults to none
+  %     - (f) after_script -> defaults to none
+  %     - exec_name -> defaults to module name of module with "main"
+
+  {EBFile, Targets} = process_commandline(Params),
+  process_ebfile(EBFile, Targets).
+
+process_ebfile(EBFile, Targets) ->
+  TargetDefs = get_targetdefs(EBFile),
+  [process_target(T, TargetDefs, EBFile) || T <- Targets].
+
+process_target(ToProcess, Defs, EBFile) when is_list(ToProcess) ->
+  process_target(list_to_atom(ToProcess), Defs);
+process_target(ToProcess, Defs, EBFile) ->
+  case proplists:get_value(ToProcess, Defs) of
+    undefined ->
+      abort("Target '~p' undefined in ~p. Aborting.", [ToProcess,EBFile], 4);
+    FoundDefs ->
+      execute_targetdef(ToProcess, FoundDefs, Defs, EBFile)
   end.
+
+execute_targetdef(Name, Def, AllDefs, EBFile) ->
+  % (f) Run before-script
+  % 1. External ebfiles
+  % 2. Other targets
+  % 3. Current sources compiled
+  % 3.5 Exit with errors if applicable
+  % 4. Turned into exec if appropriate
+  % (f) Run after-script
+  ok.
+
+
+%  ScriptDir = filename:dirname(escript:script_name()),
+%  LastModTimes = saved_modtimes(ScriptDir),
+%  BinDir = filename:join([ScriptDir,"bin"]),
+%  EBinDir = filename:join([ScriptDir,".cmd-ebin"]),
+%  ok = ensure_dir(EBinDir),
+%  SrcDir = filename:join([ScriptDir, ?SRC_DIR]),
+%  Compiled = lists:map(
+%    fun(S) ->
+%        ensure_compiled(S, LastModTimes, SrcDir, EBinDir)
+%    end, ?CMD_SOURCES),
+%  Warnings = lists:flatten(
+%    [Warns || {_, {_, _, Warns}} <- Compiled, Warns =/= nochange]),
+%  Errors = lists:flatten([Errs || {_, {error, Errs, _}} <- Compiled]),
+%  case Warnings of
+%    [] -> nice;
+%    W -> emit_errs("Warnings", W)
+%  end,
+%  case Errors of
+%    [] ->
+%      case (length([true||{_,{ok,_,nochange}}<-Compiled]) == length(Compiled))
+%        and filelib:is_file([BinDir, "/zerl"]) of
+%        true -> nothing_to_do;
+%        false ->
+%          create_executable(EBinDir, BinDir,
+%            [atom_to_list(MN)++".beam" || {_,{ok,MN,_}} <- Compiled],
+%            "zerl"),
+%          preserve_modtimes(ScriptDir, [{MN, MT} || {MT, {ok, MN,_}} <- Compiled])
+%      end;
+%    E ->
+%      emit_errs("Errors", E),
+%      halt(1)
+%  end.
+
+get_targetdefs(FileName) ->
+  case file:consult(FileName) of
+    {ok, Terms} ->
+      [preformat_target(T) || T <- Terms];
+    {error, Err} when is_atom(Err) ->
+      abort("Problem opening ~p. (~p). Aborting.", [FileName, Err], 2);
+    {error, {Line, Mod, Desc}} ->
+      abort("Error ~p on line ~p of ~p.",
+        [Mod:format_error(Desc), Line, FileName], 3)
+  end.
+
+preformat_target(T) ->
+  
+
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
   ok = ensure_dir(BinDir),
@@ -82,6 +147,30 @@ saved_modtimes(ScriptDir) ->
 preserve_modtimes(ScriptDir, Vals) ->
   MTFN = filename:join([ScriptDir, ".modtimes"]),
   ok = file:write_file(MTFN, term_to_binary(Vals)).
+
+stat(Txt) ->
+  o_stat(standard_io, Txt, []).
+stat(Txt, Args) ->
+  o_stat(standard_io, Txt, Args).
+estat(Txt) ->
+  o_stat(standard_error, Txt, []).
+estat(Txt, Args) ->
+  o_stat(standard_error, Txt, Args).
+
+abort(Msg) ->
+  abort(Msg, []).
+abort(Msg, Args) ->
+  abort(Msg, Args, 100).
+abort(Msg, Args, ErrNumber) ->
+  estat(Msg, Args),
+  halt(ErrNumber).
+
+o_stat(IoDev, Txt, []) ->
+  io:format(IoDev, Txt ++ "\n", []);
+o_stat(IoDev, Txt, [Args]) when not is_list(Args) ->
+  io:format(IoDev, Txt ++ "\n", [Args]);
+o_stat(IoDev, Txt, Args) ->
+  io:format(IoDev, Txt ++ "\n", [Args]).
 
 emit_errs(Kind, Errs) ->
   io:format(standard_error, "---------- ~s ----------\n", [Kind]),
