@@ -116,7 +116,7 @@ execute_targetdef(Name, Def, AllDefs, EBFile) ->
 get_targetdefs(FileName) ->
   case file:consult(FileName) of
     {ok, []} ->
-      abort("No targets defined in ~p. Aborting.", [Filename], 4);
+      abort("No targets defined in ~p. Aborting.", [FileName], 4);
     {ok, Terms} ->
       [preformat_target(T) || T <- Terms];
     {error, Err} when is_atom(Err) ->
@@ -126,9 +126,10 @@ get_targetdefs(FileName) ->
         [Mod:format_error(Desc), Line, FileName], 3)
   end.
 
-preformat_target(T) ->
+preformat_target({TName, TDef}) ->
   % TODO: Warning on unused
-  [proplists:get_value(Name, T, Default) || {Name, Default} <- ?TARGET_DESC].
+  {TName, [{Name, proplists:get_value(Name, TDef, Default)} ||
+      {Name, Default} <- ?TARGET_DESC]}.
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
   ok = ensure_dir(BinDir),
