@@ -24,21 +24,52 @@ main(Params) ->
   {EBFile, Targets} = process_commandline(Params),
   process_ebfile(EBFile, Targets).
 
+process_commandline(["-f" | [EBFile | Targs]]) ->
+  {EBFile, Targs};
+process_commandline(["-f", EBFile]) ->
+  {EBFile, [all]};
+process_commandline(["-f"]) ->
+  abort("No ebfile specified.");
+process_commandline([]) ->
+  {discovered_ebfile(), [all]};
+process_commandline(Targs) ->
+  {discovered_ebfile(), Targs}.
+
+discovered_ebfile() ->
+  case filelib:is_file("ebfile") of
+    false ->
+      case filelib:is_file(".ebfile") of
+        false ->
+          abort("No ebfile (or .ebfile) found in this directory.");
+        true ->
+          ".ebfile"
+      end;
+    true ->
+      "ebfile"
+  end.
+
 process_ebfile(EBFile, Targets) ->
   TargetDefs = get_targetdefs(EBFile),
   [process_target(T, TargetDefs, EBFile) || T <- Targets].
 
 process_target(ToProcess, Defs, EBFile) when is_list(ToProcess) ->
-  process_target(list_to_atom(ToProcess), Defs);
+  process_target(list_to_atom(ToProcess), Defs, EBFile);
 process_target(ToProcess, Defs, EBFile) ->
   case proplists:get_value(ToProcess, Defs) of
     undefined ->
-      abort("Target '~p' undefined in ~p. Aborting.", [ToProcess,EBFile], 4);
+      case ToProcess of
+        all ->
+          [{FirstTarget, FirstDefs} | _] = Defs,
+          execute_targetdef(FirstTarget, FirstDefs, Defs, EBFile);
+        _ ->
+          abort("Target '~p' undefined in ~p. Aborting.", [ToProcess,EBFile], 4)
+      end;
     FoundDefs ->
       execute_targetdef(ToProcess, FoundDefs, Defs, EBFile)
   end.
 
 execute_targetdef(Name, Def, AllDefs, EBFile) ->
+  io:format("Name\n~p\nDef\n~p\nAllDefs\n~p\nEBFile\n~p\n",[Name,Def,AllDefs,EBFile]).
   % (f) Run before-script
   % 1. External ebfiles
   % 2. Other targets
@@ -46,7 +77,7 @@ execute_targetdef(Name, Def, AllDefs, EBFile) ->
   % 3.5 Exit with errors if applicable
   % 4. Turned into exec if appropriate
   % (f) Run after-script
-  ok.
+
 
 
 %  ScriptDir = filename:dirname(escript:script_name()),
@@ -84,6 +115,8 @@ execute_targetdef(Name, Def, AllDefs, EBFile) ->
 
 get_targetdefs(FileName) ->
   case file:consult(FileName) of
+    {ok, []} ->
+      abort("No targets defined in ~p. Aborting.", [Filename], 4);
     {ok, Terms} ->
       [preformat_target(T) || T <- Terms];
     {error, Err} when is_atom(Err) ->
@@ -94,9 +127,8 @@ get_targetdefs(FileName) ->
   end.
 
 preformat_target(T) ->
-  % TODO: you are here.  use TARGET_DESC
-  {error, nyi}.
-
+  % TODO: Warning on unused
+  [proplists:get_value(Name, T, Default) || {Name, Default} <- ?TARGET_DESC].
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
   ok = ensure_dir(BinDir),
@@ -162,7 +194,7 @@ o_stat(IoDev, Txt, []) ->
 o_stat(IoDev, Txt, [Args]) when not is_list(Args) ->
   io:format(IoDev, Txt ++ "\n", [Args]);
 o_stat(IoDev, Txt, Args) ->
-  io:format(IoDev, Txt ++ "\n", [Args]).
+  io:format(IoDev, Txt ++ "\n", Args).
 
 emit_errs(Kind, Errs) ->
   io:format(standard_error, "---------- ~s ----------\n", [Kind]),
