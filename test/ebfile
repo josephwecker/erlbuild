@@ -1,4 +1,5 @@
 {main, [
+ {external_ebfiles, [test2, {"test2/another_one", second}]},
  {src_dir, "src2"}, % Defaults to "src" if not present
  {sources, [test1, test2, test3]},
  {dest_dir, "bin"}, % If not bin for escript-based or ebin for ebin-based

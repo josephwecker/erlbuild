@@ -22,10 +22,12 @@
 
 main(Params) ->
   {EBFile, Targets} = process_commandline(Params),
-  process_ebfile(EBFile, Targets).
+  estat("Processing ~p", [EBFile]),
+  process_ebfile(EBFile, Targets),
+  estat("Done.").
 
 process_commandline(["-f" | [EBFile | Targs]]) ->
-  {EBFile, Targs};
+  {EBFile, [list_to_atom(T)||T<-Targs]};
 process_commandline(["-f", EBFile]) ->
   {EBFile, [all]};
 process_commandline(["-f"]) ->
@@ -33,19 +35,22 @@ process_commandline(["-f"]) ->
 process_commandline([]) ->
   {discovered_ebfile(), [all]};
 process_commandline(Targs) ->
-  {discovered_ebfile(), Targs}.
+  {discovered_ebfile(), [list_to_atom(T)||T<-Targs]}.
 
 discovered_ebfile() ->
-  case filelib:is_file("ebfile") of
+  {ok, Dir} = file:get_cwd(),
+  discovered_ebfile(Dir).
+discovered_ebfile(Dir) ->
+  FN1 = filename:join([Dir, "ebfile"]),
+  FN2 = filename:join([Dir, ".ebfile"]),
+  case filelib:is_file(FN1) of
     false ->
-      case filelib:is_file(".ebfile") of
+      case filelib:is_file(FN2) of
         false ->
-          abort("No ebfile (or .ebfile) found in this directory.");
-        true ->
-          ".ebfile"
+          abort("No ebfile (or .ebfile) found in ~p.", [Dir]);
+        true -> FN2
       end;
-    true ->
-      "ebfile"
+    true -> FN1
   end.
 
 get_targetdefs(FileName) ->
@@ -87,7 +92,8 @@ process_target(ToProcess, Defs, EBFile) ->
   end.
 
 execute_targetdef(Name, Def, AllDefs, EBFile) ->
-  io:format("Name\n~p\nDef\n~p\nAllDefs\n~p\nEBFile\n~p\n",[Name,Def,AllDefs,EBFile]).
+  run_external_ebfiles(Def, EBFile),
+  ok.
   % (f) Run before-script
   % 1. External ebfiles
   % 2. Other targets
@@ -95,8 +101,52 @@ execute_targetdef(Name, Def, AllDefs, EBFile) ->
   % 3.5 Exit with errors if applicable
   % 4. Turned into exec if appropriate
   % (f) Run after-script
+  
+run_external_ebfiles(Def, EBFile) ->
+  [run_external(E, EBFile) ||
+    E <- proplists:unfold(proplists:get_value(external_ebfiles, Def))].
+
+run_external({ExFile, true}, Curr) ->
+  run_external({ExFile, []}, Curr);
+run_external({ExFile, []}, Curr) ->
+  main(["-f", ebf_relative_to_current(ExFile, Curr)]);
+run_external({ExFile, Target}, Curr) when not is_list(Target) ->
+  run_external({ExFile, [Target]}, Curr);
+run_external({ExFile, Targets}, Curr) ->
+  main(["-f" | [ebf_relative_to_current(ExFile, Curr) | to_strings(Targets)]]).
 
 
+ebf_relative_to_current(ExFile, Curr) when is_atom(ExFile) ->
+  ebf_relative_to_current(to_string(ExFile), Curr);
+ebf_relative_to_current([F|_] = ExFile, Curr) ->
+  CurrDir = filename:dirname(Curr),
+  ExLoc =
+    case F of
+      $/ -> ExFile;
+      _ -> filename:join([CurrDir, ExFile])
+    end,
+  case filelib:is_dir(ExLoc) of
+    true -> discovered_ebfile(ExLoc);
+    false ->
+      case filelib:is_file(ExLoc) of
+        false ->
+          abort("Could not find external ebfile at or for ~p", [ExLoc]);
+        true -> ExLoc
+      end
+  end.
+
+
+
+to_strings(In) ->
+  [to_string(I) || I <- In].
+
+to_string(In) when is_atom(In) ->
+  atom_to_list(In);
+to_string(In) when is_binary(In) ->
+  binary_to_list(In);
+to_string([H|_] = In) when is_integer(H) ->
+  In.
+% TODO: In general, add in integers etc.
 
 %  ScriptDir = filename:dirname(escript:script_name()),
 %  LastModTimes = saved_modtimes(ScriptDir),
