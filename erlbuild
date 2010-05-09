@@ -48,6 +48,24 @@ discovered_ebfile() ->
       "ebfile"
   end.
 
+get_targetdefs(FileName) ->
+  case file:consult(FileName) of
+    {ok, []} ->
+      abort("No targets defined in ~p. Aborting.", [FileName], 4);
+    {ok, Terms} ->
+      [preformat_target(T) || T <- Terms];
+    {error, Err} when is_atom(Err) ->
+      abort("Problem opening ~p. (~p). Aborting.", [FileName, Err], 2);
+    {error, {Line, Mod, Desc}} ->
+      abort("Error ~p on line ~p of ~p.",
+        [Mod:format_error(Desc), Line, FileName], 3)
+  end.
+
+preformat_target({TName, TDef}) ->
+  % TODO: Warning on unused
+  {TName, [{Name, proplists:get_value(Name, TDef, Default)} ||
+      {Name, Default} <- ?TARGET_DESC]}.
+
 process_ebfile(EBFile, Targets) ->
   TargetDefs = get_targetdefs(EBFile),
   [process_target(T, TargetDefs, EBFile) || T <- Targets].
@@ -112,24 +130,6 @@ execute_targetdef(Name, Def, AllDefs, EBFile) ->
 %      emit_errs("Errors", E),
 %      halt(1)
 %  end.
-
-get_targetdefs(FileName) ->
-  case file:consult(FileName) of
-    {ok, []} ->
-      abort("No targets defined in ~p. Aborting.", [FileName], 4);
-    {ok, Terms} ->
-      [preformat_target(T) || T <- Terms];
-    {error, Err} when is_atom(Err) ->
-      abort("Problem opening ~p. (~p). Aborting.", [FileName, Err], 2);
-    {error, {Line, Mod, Desc}} ->
-      abort("Error ~p on line ~p of ~p.",
-        [Mod:format_error(Desc), Line, FileName], 3)
-  end.
-
-preformat_target({TName, TDef}) ->
-  % TODO: Warning on unused
-  {TName, [{Name, proplists:get_value(Name, TDef, Default)} ||
-      {Name, Default} <- ?TARGET_DESC]}.
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
   ok = ensure_dir(BinDir),
