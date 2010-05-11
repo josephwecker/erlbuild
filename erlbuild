@@ -1,6 +1,11 @@
 #!/usr/bin/env escript
+% TODO:
+%  - When there's no ebfile at all, try to run a default rule anyway
+%
 
 -export([main/1]).
+
+-import(proplists, [get_value/2, get_value/3]).
 
 % To avoid dependency with kernel.  Might need to rethink later.
 -record(file_info,
@@ -55,7 +60,7 @@ process_ebfile(EBFile, Targets) ->
 process_target(ToProcess, Defs, EBFile) when is_list(ToProcess) ->
   process_target(list_to_atom(ToProcess), Defs, EBFile);
 process_target(ToProcess, Defs, EBFile) ->
-  case proplists:get_value(ToProcess, Defs) of
+  case get_value(ToProcess, Defs) of
     undefined ->
       case ToProcess of
         all ->
@@ -68,8 +73,7 @@ process_target(ToProcess, Defs, EBFile) ->
       execute_targetdef(ToProcess, FoundDefs, Defs, EBFile)
   end.
 
-execute_targetdef(Name, Def, AllDefs, EBFile) ->
-  io:format("Name\n~p\nDef\n~p\nAllDefs\n~p\nEBFile\n~p\n",[Name,Def,AllDefs,EBFile]).
+execute_targetdef(_Name, Def, _AllDefs, _EBFile) ->
   % (f) Run before-script
   % 1. External ebfiles
   % 2. Other targets
@@ -78,7 +82,48 @@ execute_targetdef(Name, Def, AllDefs, EBFile) ->
   % 4. Turned into exec if appropriate
   % (f) Run after-script
 
+  {Warnings, Errors} = compile_sources(Def).
 
+compile_sources(Def) ->
+  case actual_sources(Def) of
+    [] ->
+      {[],[]};
+    Sources ->
+      stat("Sources: ~p", [Sources]),
+      {[], []}
+  end.
+
+
+actual_sources(Def) ->
+  SrcDir = get_value(src_dir, Def),
+  case get_value(sources, Def) of
+    undefined -> [];
+    [] -> [];
+    Val -> actual_sources2(SrcDir, Val)
+  end.
+
+actual_sources2(_, []) ->
+  [];
+actual_sources2(SrcDir, SL) when is_atom(SL) ->
+  actual_sources2(SrcDir, [SL]);
+actual_sources2(SrcDir, [H|_] = SL) when is_integer(H) ->
+  actual_sources2(SrcDir, [SL]);
+actual_sources2(SrcDir, SL) ->
+  actual_sources3(SrcDir, SL, []).
+
+actual_sources3(_, [], Acc) ->
+  lists:reverse(Acc);
+actual_sources3(SD, [H|T], Acc) ->
+  Found = filelib:wildcard(fix_source_glob(SD,H)),
+  actual_sources3(SD, T, Found ++ Acc).
+
+fix_source_glob(Dir, Src) when is_atom(Src) ->
+  case filename:extension(Src) of
+    [] -> fix_source_glob(Dir, [Src, ".erl"]);
+    _ -> fix_source_glob(Dir, [Src])
+  end;
+fix_source_glob(Dir, Src) ->
+  filename:join([Dir, Src]).
 
 %  ScriptDir = filename:dirname(escript:script_name()),
 %  LastModTimes = saved_modtimes(ScriptDir),
@@ -128,7 +173,7 @@ get_targetdefs(FileName) ->
 
 preformat_target({TName, TDef}) ->
   % TODO: Warning on unused
-  {TName, [{Name, proplists:get_value(Name, TDef, Default)} ||
+  {TName, [{Name, get_value(Name, TDef, Default)} ||
       {Name, Default} <- ?TARGET_DESC]}.
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
@@ -220,7 +265,7 @@ emit_file_err({File, Errs}) ->
 ensure_compiled(Src, ModTimes, SrcDir, OutDir) ->
   FName = [SrcDir, "/", atom_to_list(Src), ".erl"],
   case {file:read_file_info(FName),
-      proplists:get_value(Src, ModTimes, none),
+      get_value(Src, ModTimes, none),
       filelib:is_file([OutDir,"/",Src,".beam"])} of
     {{error, enoent}, _, _} ->
       {none, {error, {cust, "Missing source file-  " ++ lists:flatten(FName)},
