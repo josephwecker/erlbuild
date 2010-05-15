@@ -1,6 +1,11 @@
 #!/usr/bin/env escript
+% TODO:
+%  - When there's no ebfile at all, try to run a default rule anyway
+%
 
 -export([main/1]).
+
+-import(proplists, [get_value/2, get_value/3]).
 
 % To avoid dependency with kernel.  Might need to rethink later.
 -record(file_info,
@@ -53,24 +58,6 @@ discovered_ebfile(Dir) ->
     true -> FN1
   end.
 
-get_targetdefs(FileName) ->
-  case file:consult(FileName) of
-    {ok, []} ->
-      abort("No targets defined in ~p. Aborting.", [FileName], 4);
-    {ok, Terms} ->
-      [preformat_target(T) || T <- Terms];
-    {error, Err} when is_atom(Err) ->
-      abort("Problem opening ~p. (~p). Aborting.", [FileName, Err], 2);
-    {error, {Line, Mod, Desc}} ->
-      abort("Error ~p on line ~p of ~p.",
-        [Mod:format_error(Desc), Line, FileName], 3)
-  end.
-
-preformat_target({TName, TDef}) ->
-  % TODO: Warning on unused
-  {TName, [{Name, proplists:get_value(Name, TDef, Default)} ||
-      {Name, Default} <- ?TARGET_DESC]}.
-
 process_ebfile(EBFile, Targets) ->
   TargetDefs = get_targetdefs(EBFile),
   [process_target(T, TargetDefs, EBFile) || T <- Targets].
@@ -78,7 +65,7 @@ process_ebfile(EBFile, Targets) ->
 process_target(ToProcess, Defs, EBFile) when is_list(ToProcess) ->
   process_target(list_to_atom(ToProcess), Defs, EBFile);
 process_target(ToProcess, Defs, EBFile) ->
-  case proplists:get_value(ToProcess, Defs) of
+  case get_value(ToProcess, Defs) of
     undefined ->
       case ToProcess of
         all ->
@@ -91,9 +78,9 @@ process_target(ToProcess, Defs, EBFile) ->
       execute_targetdef(ToProcess, FoundDefs, Defs, EBFile)
   end.
 
-execute_targetdef(Name, Def, AllDefs, EBFile) ->
+execute_targetdef(_Name, Def, _AllDefs, EBFile) ->
   run_external_ebfiles(Def, EBFile),
-  ok.
+  {Warnings, Errors} = compile_sources(Def).
   % (f) Run before-script
   % 1. External ebfiles
   % 2. Other targets
@@ -115,6 +102,39 @@ run_external({ExFile, Target}, Curr) when not is_list(Target) ->
 run_external({ExFile, Targets}, Curr) ->
   main(["-f" | [ebf_relative_to_current(ExFile, Curr) | to_strings(Targets)]]).
 
+
+compile_sources(Def) ->
+  case actual_sources(Def) of
+    [] ->
+      {[],[]};
+    Sources ->
+      stat("Sources: ~p", [Sources]),
+      {[], []}
+  end.
+
+
+actual_sources(Def) ->
+  SrcDir = get_value(src_dir, Def),
+  case get_value(sources, Def) of
+    undefined -> [];
+    [] -> [];
+    Val -> actual_sources2(SrcDir, Val)
+  end.
+
+actual_sources2(_, []) ->
+  [];
+actual_sources2(SrcDir, SL) when is_atom(SL) ->
+  actual_sources2(SrcDir, [SL]);
+actual_sources2(SrcDir, [H|_] = SL) when is_integer(H) ->
+  actual_sources2(SrcDir, [SL]);
+actual_sources2(SrcDir, SL) ->
+  actual_sources3(SrcDir, SL, []).
+
+actual_sources3(_, [], Acc) ->
+  lists:reverse(Acc);
+actual_sources3(SD, [H|T], Acc) ->
+  Found = filelib:wildcard(fix_source_glob(SD,H)),
+  actual_sources3(SD, T, Found ++ Acc).
 
 ebf_relative_to_current(ExFile, Curr) when is_atom(ExFile) ->
   ebf_relative_to_current(to_string(ExFile), Curr);
@@ -148,6 +168,14 @@ to_string([H|_] = In) when is_integer(H) ->
   In.
 % TODO: In general, add in integers etc.
 
+fix_source_glob(Dir, Src) when is_atom(Src) ->
+  case filename:extension(Src) of
+    [] -> fix_source_glob(Dir, [Src, ".erl"]);
+    _ -> fix_source_glob(Dir, [Src])
+  end;
+fix_source_glob(Dir, Src) ->
+  filename:join([Dir, Src]).
+
 %  ScriptDir = filename:dirname(escript:script_name()),
 %  LastModTimes = saved_modtimes(ScriptDir),
 %  BinDir = filename:join([ScriptDir,"bin"]),
@@ -180,6 +208,24 @@ to_string([H|_] = In) when is_integer(H) ->
 %      emit_errs("Errors", E),
 %      halt(1)
 %  end.
+
+get_targetdefs(FileName) ->
+  case file:consult(FileName) of
+    {ok, []} ->
+      abort("No targets defined in ~p. Aborting.", [FileName], 4);
+    {ok, Terms} ->
+      [preformat_target(T) || T <- Terms];
+    {error, Err} when is_atom(Err) ->
+      abort("Problem opening ~p. (~p). Aborting.", [FileName, Err], 2);
+    {error, {Line, Mod, Desc}} ->
+      abort("Error ~p on line ~p of ~p.",
+        [Mod:format_error(Desc), Line, FileName], 3)
+  end.
+
+preformat_target({TName, TDef}) ->
+  % TODO: Warning on unused
+  {TName, [{Name, get_value(Name, TDef, Default)} ||
+      {Name, Default} <- ?TARGET_DESC]}.
 
 create_executable(EBinDir, BinDir, Beams, ExecName) ->
   ok = ensure_dir(BinDir),
@@ -270,7 +316,7 @@ emit_file_err({File, Errs}) ->
 ensure_compiled(Src, ModTimes, SrcDir, OutDir) ->
   FName = [SrcDir, "/", atom_to_list(Src), ".erl"],
   case {file:read_file_info(FName),
-      proplists:get_value(Src, ModTimes, none),
+      get_value(Src, ModTimes, none),
       filelib:is_file([OutDir,"/",Src,".beam"])} of
     {{error, enoent}, _, _} ->
       {none, {error, {cust, "Missing source file-  " ++ lists:flatten(FName)},
